@@ -6,7 +6,7 @@ from easyEEZYbotARM.kinematic_model import EEZYbotARM_Mk1
 
 # Thiết lập GPIO
 GPIO.setmode(GPIO.BCM)
-servo_pins = [17, 18, 27]  # Pin cho servo q1, q2, q3
+servo_pins = [17, 18, 27]
 for pin in servo_pins:
     GPIO.setup(pin, GPIO.OUT)
     GPIO.output(pin, False)
@@ -44,7 +44,7 @@ def detect_object(frame):
 def image_to_world(cx, cy, robot, q1_current, target_color, frame_width=640, frame_height=480):
     z_heights = {"red": 10, "green": 10, "blue": 10}
     z_height = z_heights.get(target_color, 10)
-    x_current, y_current, z_current = robot.forwardKinematics(q1=q1_current, q2=90, q3=0)
+    x_current, y_current, z_current = robot.forwardKinematics(q1=q1_current)
     camera_offset_x = -20
     camera_offset_y = 0
     camera_offset_z = -10
@@ -85,22 +85,22 @@ def scan_and_pick(robot, cap, target_color):
     print(f"Scanning for {target_color}...")
     q1 = -30
     step = 15
-    q2_initial = 90  # Trong giới hạn 39 đến 120
-    q3_initial = 0   # Sẽ được kiểm tra
-    found = False
-    
-    # Kiểm tra q3_initial có hợp lệ với q2_initial không
+    q2_initial = 90
+    # Tính q3 hợp lệ ban đầu dựa trên q2_initial
     q3_min, q3_max = robot.q3CalcLimits(q2=q2_initial)
-    if q3_initial < q3_min or q3_initial > q3_max:
-        q3_initial = (q3_min + q3_max) / 2  # Lấy giá trị giữa nếu q3 ban đầu không hợp lệ
-        print(f"Adjusted q3_initial to {q3_initial:.2f} to fit limits ({q3_min:.2f}, {q3_max:.2f})")
+    q3_initial = (q3_min + q3_max) / 2  # Chọn giá trị giữa để đảm bảo hợp lệ
+    print(f"Initial q3 set to {q3_initial:.2f} within limits ({q3_min:.2f}, {q3_max:.2f})")
     
     while q1 <= 30:
-        robot.updateJointAngles(q1, q2_initial, q3_initial)
-        servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
-        set_servo_angle(servo_pins[0], servo_q1)
-        set_servo_angle(servo_pins[1], servo_q2)
-        set_servo_angle(servo_pins[2], servo_q3)
+        try:
+            robot.updateJointAngles(q1, q2_initial, q3_initial)
+            servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
+            set_servo_angle(servo_pins[0], servo_q1)
+            set_servo_angle(servo_pins[1], servo_q2)
+            set_servo_angle(servo_pins[2], servo_q3)
+        except Exception as e:
+            print(f"Error setting initial position: {e}")
+            return False
         
         ret, frame = cap.read()
         if not ret:
@@ -115,18 +115,16 @@ def scan_and_pick(robot, cap, target_color):
             print(f"Converted to world coordinates: ({x:.2f}, {y:.2f}, {z:.2f})")
             if move_to_position(robot, x, y, z):
                 print(f"Picked up {target_color}")
-                found = True
-            break
+                return True
         
         q1 += step
         time.sleep(0.5)
     
-    if not found:
-        print(f"No {target_color} found in scanning range")
-    return found
+    print(f"No {target_color} found in scanning range")
+    return False
 
 def main():
-    robot = EEZYbotARM_Mk1(0, 90, 0)
+    robot = EEZYbotARM_Mk1(0, 90, -100)  # Khởi tạo với q3 ban đầu hợp lệ
     target_color = input("Enter target color (red/green/blue): ").strip().lower()
     if target_color not in ["red", "green", "blue"]:
         print("Invalid color. Please choose red, green, or blue.")
