@@ -1,19 +1,19 @@
 import cv2
 
-# Mở camera (0 là camera mặc định, có thể thay đổi nếu có nhiều camera)
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Dùng V4L2
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)   # Độ phân giải thấp để chạy mượt hơn
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-while True:
-    ret, frame = cap.read()  # Đọc frame từ camera
+while cap.isOpened():
+    ret, frame = cap.read()
     if not ret:
-        break  # Thoát nếu không lấy được frame
+        print("Không thể đọc dữ liệu từ camera")
+        break
 
-    cv2.imshow('Camera', frame)  # Hiển thị hình ảnh
+    cv2.imshow("Camera", frame)
 
-    # Nhấn phím 'q' để thoát
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Giải phóng tài nguyên và đóng cửa sổ
 cap.release()
 cv2.destroyAllWindows()
