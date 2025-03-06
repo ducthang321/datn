@@ -1,13 +1,18 @@
 import cv2
 
-cap = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Dùng V4L2
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)   # Độ phân giải thấp để chạy mượt hơn
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+# Dùng GStreamer pipeline d? m? camera trên Raspberry Pi OS m?i
+pipeline = "libcamerasrc ! video/x-raw, width=640, height=480, framerate=30/1 ! videoconvert ! appsink"
 
-while cap.isOpened():
+cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+
+if not cap.isOpened():
+    print("Không th? m? camera")
+    exit()
+
+while True:
     ret, frame = cap.read()
     if not ret:
-        print("Không thể đọc dữ liệu từ camera")
+        print("Không th? d?c d? li?u t? camera")
         break
 
     cv2.imshow("Camera", frame)
