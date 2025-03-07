@@ -1,95 +1,88 @@
 import cv2
 import numpy as np
 import subprocess
-import threading
 
-class CameraStream:
-    def __init__(self, width=640, height=480, fps=30):
-        self.cmd = [
-            "libcamera-vid",
-            "-t", "0",  # Chạy liên tục
-            "--width", str(width),
-            "--height", str(height),
-            "--framerate", str(fps),
-            "--codec", "mjpeg",
-            "-o", "-"  # Xuất video ra stdout
-        ]
-        self.process = None
-        self.buffer = b""
-        self.frame = None
-        self.running = False
+# Chạy libcamera-vid để lấy video
+cmd = [
+    "libcamera-vid",
+    "-t", "0",  # Chạy liên tục
+    "--width", "640",
+    "--height", "480",
+    "--framerate", "30",
+    "--codec", "mjpeg",
+    "-o", "-"
+]
+process = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=10**8)
 
-    def start(self):
-        """Bắt đầu luồng camera"""
-        self.running = True
-        self.process = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, bufsize=10**8)
-        self.thread = threading.Thread(target=self.update, daemon=True)
-        self.thread.start()
+buffer = b""
+color = 'r'  # Mặc định nhận diện màu đỏ
 
-    def update(self):
-        """Luồng đọc dữ liệu camera"""
-        while self.running:
-            self.buffer += self.process.stdout.read(4096)
-            a = self.buffer.find(b'\xff\xd8')  # Bắt đầu JPEG
-            b = self.buffer.find(b'\xff\xd9')  # Kết thúc JPEG
-            if a != -1 and b != -1:
-                jpg = self.buffer[a:b+2]
-                self.buffer = self.buffer[b+2:]
-                self.frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+def get_color_ranges(color):
+    """Trả về ngưỡng HSV tương ứng với màu cần nhận diện"""
+    if color == 'r':  # Màu đỏ
+        lower1, upper1 = (0, 120, 70), (10, 255, 255)
+        lower2, upper2 = (170, 120, 70), (180, 255, 255)
+    elif color == 'g':  # Màu xanh lá
+        lower1, upper1 = (35, 100, 50), (85, 255, 255)
+        lower2, upper2 = None, None  # Không có vùng màu thứ 2
+    elif color == 'b':  # Màu xanh dương
+        lower1, upper1 = (100, 120, 70), (140, 255, 255)
+        lower2, upper2 = None, None
+    return lower1, upper1, lower2, upper2
 
-    def read(self):
-        """Lấy frame mới nhất"""
-        return self.frame
-
-    def stop(self):
-        """Dừng camera"""
-        self.running = False
-        self.process.terminate()
-        self.thread.join()
-
-def detect_red(frame):
-    """Nhận diện màu đỏ trong frame"""
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-    # Ngưỡng màu đỏ (có 2 vùng trong HSV)
-    lower_red1 = np.array([0, 120, 70])
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([170, 120, 70])
-    upper_red2 = np.array([180, 255, 255])
-
-    # Tạo mask
-    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    mask = mask1 + mask2
-
-    # Lọc nhiễu
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
-
-    # Tìm contours (vùng màu đỏ)
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area > 500:  # Lọc vùng nhỏ để tránh nhiễu
-            x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(frame, "Red Object", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-    return frame
-
-# Khởi chạy camera
-cam = CameraStream(width=640, height=480, fps=30)
-cam.start()
-
-# Vòng lặp chính
 while True:
-    frame = cam.read()
-    if frame is not None:
-        frame = detect_red(frame)
-        cv2.imshow("Red Detection", frame)
+    buffer += process.stdout.read(4096)
+    a = buffer.find(b'\xff\xd8')  # Tìm JPEG start
+    b = buffer.find(b'\xff\xd9')  # Tìm JPEG end
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if a != -1 and b != -1:
+        jpg = buffer[a:b+2]
+        buffer = buffer[b+2:]
+        frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+        # Chuyển ảnh sang HSV
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Lấy ngưỡng màu theo lựa chọn từ bàn phím
+        lower1, upper1, lower2, upper2 = get_color_ranges(color)
+
+        # Tạo mask
+        mask1 = cv2.inRange(hsv, np.array(lower1), np.array(upper1))
+        mask = mask1
+        if lower2 and upper2:
+            mask2 = cv2.inRange(hsv, np.array(lower2), np.array(upper2))
+            mask += mask2
+
+        # Tìm contours (vùng có màu)
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Tìm vùng màu lớn nhất
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(largest) > 500:  # Lọc vùng nhỏ
+                x, y, w, h = cv2.boundingRect(largest)
+                cx, cy = x + w // 2, y + h // 2  # Tọa độ trung tâm
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(frame, f"({cx}, {cy})", (cx, cy - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                print(f"Tọa độ: ({cx}, {cy})")
+
+        # Hiển thị hình ảnh
+        cv2.imshow("Color Detection", frame)
+
+    # Nhập màu từ bàn phím
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('r'):
+        color = 'r'
+        print("Nhận diện màu ĐỎ")
+    elif key == ord('g'):
+        color = 'g'
+        print("Nhận diện màu XANH LÁ")
+    elif key == ord('b'):
+        color = 'b'
+        print("Nhận diện màu XANH DƯƠNG")
+    elif key == ord('q'):
         break
 
-cam.stop()
+process.terminate()
 cv2.destroyAllWindows()
