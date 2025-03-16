@@ -18,25 +18,12 @@ pwm_objects = {pin: GPIO.PWM(pin, 50) for pin in servo_pins}
 for pwm in pwm_objects.values():
     pwm.start(0)
 
-def set_servo_angle(pin, target_angle, step=2, delay=0.02):
-    """
-    Điều khiển servo đến góc mong muốn một cách mượt mà.
-    """
-    current_angle = 90  # Giả định vị trí ban đầu là 90°
-    target_angle = int(target_angle)  # Chuyển thành số nguyên
-    
-    if target_angle > current_angle:
-        for angle in range(current_angle, target_angle + 1, step):
-            duty = angle / 18 + 2
-            pwm_objects[pin].ChangeDutyCycle(duty)
-            time.sleep(delay)
-    else:
-        for angle in range(current_angle, target_angle - 1, -step):
-            duty = angle / 18 + 2
-            pwm_objects[pin].ChangeDutyCycle(duty)
-            time.sleep(delay)
-
-    pwm_objects[pin].ChangeDutyCycle(0)  # Dừng tín hiệu
+def set_servo_angle(pin, angle, pwm_objects):
+    """Điều khiển servo tới góc xác định."""
+    duty = angle / 18 + 2  # Chuyển đổi góc thành duty cycle
+    pwm_objects[pin].ChangeDutyCycle(duty)
+    time.sleep(0.5)
+    pwm_objects[pin].ChangeDutyCycle(0)  # Tắt PWM sau khi di chuyển
 
 def detect_object(frame, target_color):
     """Phát hiện vật thể dựa trên màu (trong không gian màu BGR) và trả về tọa độ."""
