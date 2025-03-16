@@ -39,7 +39,7 @@ def set_servo_angle(pin, target_angle, step=2, delay=0.02):
     pwm_objects[pin].ChangeDutyCycle(0)  # Dừng tín hiệu
 
 def detect_object(frame, target_color):
-    """Phát hiện vật thể dựa trên màu (trong không gian màu BGR)."""
+    """Phát hiện vật thể dựa trên màu (trong không gian màu BGR) và trả về tọa độ."""
     color_ranges = {
         "red": (np.array([0, 0, 100], dtype=np.uint8), np.array([50, 50, 255], dtype=np.uint8)),
         "green": (np.array([0, 100, 0], dtype=np.uint8), np.array([50, 255, 50], dtype=np.uint8)),
@@ -47,12 +47,12 @@ def detect_object(frame, target_color):
     }
     
     if target_color not in color_ranges:
-        return {}
+        return None
     
     lower, upper = color_ranges[target_color]
     mask = cv2.inRange(frame, lower, upper)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    positions = {}
+    
     if contours:
         largest = max(contours, key=cv2.contourArea)
         if cv2.contourArea(largest) > 500:  # Lọc nhiễu nhỏ
@@ -60,8 +60,23 @@ def detect_object(frame, target_color):
             if M["m00"] != 0:
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
-                positions[target_color] = (cx, cy)
-    return positions
+                return (cx, cy)
+    return None
+
+def process_frame(frame, target_color):
+    """Xử lý frame: phát hiện vật thể và vẽ lên frame."""
+    processed_frame = frame.copy()
+    position = detect_object(processed_frame, target_color)
+    
+    if position:
+        cx, cy = position
+        # Vẽ vòng tròn tại tâm vật thể
+        cv2.circle(processed_frame, (cx, cy), 5, (0, 255, 0), -1)
+        # Vẽ chữ thông báo màu
+        cv2.putText(processed_frame, f"Detected: {target_color}", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    
+    return processed_frame, position
 
 def image_to_world(cx, cy, robot, target_color, q1, frame_width=640, frame_height=480):
     """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm)."""
@@ -127,9 +142,7 @@ def move_to_position(robot, x, y, z, q4=None):
         return False
 
 def scan_and_pick(robot, process, target_color):
-    """
-    Quét môi trường và nhặt vật, với camera chạy xuyên suốt.
-    """
+    """Quét môi trường, hiển thị frame liên tục và nhặt vật."""
     print(f"Scanning for {target_color}...")
     
     # Mở kẹp ban đầu (q4 = 0°)
@@ -149,10 +162,10 @@ def scan_and_pick(robot, process, target_color):
         set_servo_angle(servo_pins[2], servo_q3)
         print(f"Rotated to q1={q1}°")
         
-        # Đọc và hiển thị frame liên tục
-        buffer += process.stdout.read(1024)
+        # Đọc và xử lý frame từ camera
+        buffer += process.stdout.read(2048)  # Tăng buffer để đọc nhanh hơn
         a = buffer.find(b'\xff\xd8')  # Đầu frame JPEG
-        b = buffer.find(b'\xff\d9')  # Cuối frame JPEG
+        b = buffer.find(b'\xff\xd9')  # Cuối frame JPEG
         if a != -1 and b != -1 and a < b:
             jpg = buffer[a:b+2]
             buffer = buffer[b+2:]
@@ -162,16 +175,13 @@ def scan_and_pick(robot, process, target_color):
                 print("Failed to decode frame")
                 continue
             
-            # Hiển thị frame
-            cv2.imshow("Camera Feed", frame)
+            # Xử lý frame và hiển thị
+            processed_frame, position = process_frame(frame, target_color)
+            cv2.imshow("Camera Feed", processed_frame)
             
-            # Phát hiện vật thể
-            positions = detect_object(frame, target_color)
-            if target_color in positions:
-                cx, cy = positions[target_color]
-                cv2.circle(frame, (cx, cy), 5, (0, 255, 0), -1)
-                cv2.imshow("Camera Feed", frame)
-                
+            # Nếu phát hiện vật thể, nhặt nó
+            if position:
+                cx, cy = position
                 x, y, z = image_to_world(cx, cy, robot, target_color, q1)
                 print(f"Found {target_color} at (world coords): ({x:.2f}, {y:.2f}, {z:.2f})")
                 
@@ -209,6 +219,7 @@ def main():
         GPIO.cleanup()
         return
     
+    # Khởi động camera
     cmd = [
         "libcamera-vid",
         "-t", "0",
@@ -224,6 +235,9 @@ def main():
         print("Error starting camera:", e)
         GPIO.cleanup()
         return
+    
+    # Tạo cửa sổ OpenCV
+    cv2.namedWindow("Camera Feed", cv2.WINDOW_NORMAL)
     
     try:
         scan_and_pick(robot, process, target_color)
