@@ -5,10 +5,10 @@ import numpy as np
 import time
 import subprocess
 
-# Cấu hình GPIO cho servo (bao gồm q4 cho kẹp)
+# Cấu hình GPIO cho servo
 GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)  # Tắt cảnh báo GPIO
-servo_pins = [17, 18, 27, 22]  # Pin cho q1, q2, q3, q4 (q4 cho kẹp)
+GPIO.setwarnings(False)
+servo_pins = [17, 18, 27, 22]  # q1, q2, q3, q4 (kẹp)
 for pin in servo_pins:
     GPIO.setup(pin, GPIO.OUT)
     GPIO.output(pin, False)
@@ -20,13 +20,13 @@ for pwm in pwm_objects.values():
 
 def set_servo_angle(pin, angle, pwm_objects):
     """Điều khiển servo tới góc xác định."""
-    duty = angle / 18 + 2  # Chuyển đổi góc thành duty cycle
+    duty = angle / 18 + 2
     pwm_objects[pin].ChangeDutyCycle(duty)
     time.sleep(0.5)
-    pwm_objects[pin].ChangeDutyCycle(0)  # Tắt PWM sau khi di chuyển
+    pwm_objects[pin].ChangeDutyCycle(0)
 
 def detect_object(frame, target_color):
-    """Phát hiện vật thể dựa trên màu và trả về tọa độ."""
+    """Phát hiện vật thể dựa trên màu và trả về tọa độ tâm."""
     color_ranges = {
         "red": (np.array([0, 0, 100], dtype=np.uint8), np.array([50, 50, 255], dtype=np.uint8)),
         "green": (np.array([0, 100, 0], dtype=np.uint8), np.array([50, 255, 50], dtype=np.uint8)),
@@ -34,6 +34,7 @@ def detect_object(frame, target_color):
     }
     
     if target_color not in color_ranges:
+        print(f"Màu không hợp lệ: {target_color}")
         return None
     
     lower, upper = color_ranges[target_color]
@@ -42,24 +43,27 @@ def detect_object(frame, target_color):
     
     if contours:
         largest = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(largest) > 500:  # Lọc nhiễu nhỏ
+        if cv2.contourArea(largest) > 500:
             M = cv2.moments(largest)
             if M["m00"] != 0:
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
+                print(f"Phát hiện {target_color} tại ({cx}, {cy})")
                 return (cx, cy)
+    print(f"Không phát hiện được {target_color}")
     return None
 
 def process_frame(frame, target_color):
-    """Xử lý frame: phát hiện vật thể và vẽ lên frame."""
+    """Xử lý khung hình: phát hiện vật thể và vẽ điểm."""
     processed_frame = frame.copy()
     position = detect_object(processed_frame, target_color)
     
     if position:
         cx, cy = position
-        cv2.circle(processed_frame, (cx, cy), 5, (0, 255, 0), -1)
+        cv2.circle(processed_frame, (cx, cy), 10, (0, 255, 0), -1)  # Vẽ điểm xanh lá
         cv2.putText(processed_frame, f"Detected: {target_color}", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        print(f"Đã vẽ điểm tại ({cx}, {cy})")
     
     return processed_frame, position
 
@@ -68,41 +72,33 @@ def image_to_world(cx, cy, robot, target_color, frame_width=640, frame_height=48
     z_heights = {"red": 10, "green": 10, "blue": 10}
     z_height = z_heights.get(target_color, 10)
     
-    # Vị trí camera trong hệ tọa độ robot
-    camera_position = np.array([80, 0, 121])  # mm (x, y, z)
+    camera_position = np.array([80, 0, 121])
+    fov_horizontal, fov_vertical = 54, 41
+    camera_height = camera_position[2] or 1
     
-    # Giả sử hệ tọa độ camera song song với hệ robot
-    fov_horizontal = 54  # độ
-    fov_vertical = 41    # độ
-    camera_height = camera_position[2] if camera_position[2] > 0 else 1  # Tránh chia cho 0
-    
-    # Tính kích thước thực tế của trường nhìn
     real_width = 2 * camera_height * np.tan(np.radians(fov_horizontal / 2))
     real_height = 2 * camera_height * np.tan(np.radians(fov_vertical / 2))
     mm_per_pixel_x = real_width / frame_width
     mm_per_pixel_y = real_height / frame_height
     
-    # Tính offset từ tâm hình ảnh
     offset_x = (cx - frame_width / 2) * mm_per_pixel_x
     offset_y = (cy - frame_height / 2) * mm_per_pixel_y
     
-    # Tọa độ trong hệ camera
-    P_camera = np.array([offset_x, offset_y, 0])  # Giả sử vật thể ở Z=0 trong hệ camera
-    
-    # Chuyển sang hệ robot
+    P_camera = np.array([offset_x, offset_y, 0])
     P_robot = P_camera + camera_position
-    P_robot[2] = z_height  # Đặt Z theo độ cao của vật thể
+    P_robot[2] = z_height
     
+    print(f"Tọa độ thực tế: ({P_robot[0]:.2f}, {P_robot[1]:.2f}, {P_robot[2]:.2f})")
     return P_robot[0], P_robot[1], P_robot[2]
 
 def move_to_position(robot, x, y, z, q4=None):
-    """Di chuyển cánh tay tới vị trí xác định và điều khiển kẹp nếu có q4."""
+    """Di chuyển robot tới vị trí và điều khiển kẹp."""
     try:
         q1, q2, q3 = robot.inverseKinematics(x, y, z)
         servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles(q1=q1, q2=q2, q3=q3)
         
         if not (0 <= servo_q1 <= 180 and 0 <= servo_q2 <= 180 and 0 <= servo_q3 <= 180):
-            raise ValueError("Servo angles for q1, q2, q3 out of range (0-180 degrees)")
+            raise ValueError("Góc servo q1, q2, q3 ngoài khoảng 0-180")
         
         set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
         set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
@@ -110,116 +106,99 @@ def move_to_position(robot, x, y, z, q4=None):
         
         if q4 is not None:
             if not (0 <= q4 <= 180):
-                raise ValueError("Servo angle for q4 out of range (0-180 degrees)")
+                raise ValueError("Góc servo q4 ngoài khoảng 0-180")
             set_servo_angle(servo_pins[3], q4, pwm_objects)
-            print(f"Gripper moved to q4={q4:.2f}")
+            print(f"Kẹp di chuyển đến q4={q4:.2f}")
         
-        print(f"Moved to: q1={q1:.2f}, q2={q2:.2f}, q3={q3:.2f} (Servo: {servo_q1:.2f}, {servo_q2:.2f}, {servo_q3:.2f})")
+        print(f"Di chuyển đến: q1={q1:.2f}, q2={q2:.2f}, q3={q3:.2f}")
         return True
     except Exception as e:
-        print(f"Error moving to position: {e}")
+        print(f"Lỗi di chuyển: {e}")
         return False
 
 def pick_object(robot, process, target_color):
-    """Nhặt vật thể ngay trước mặt robot mà không quét."""
-    print(f"Preparing to pick {target_color} object in front...")
+    """Nhặt vật thể dựa trên màu."""
+    print(f"Chuẩn bị nhặt {target_color}...")
     
-    # Mở kẹp ban đầu (q4 = 0°)
     set_servo_angle(servo_pins[3], 0, pwm_objects)
-    print("Gripper opened (q4=0)")
+    print("Kẹp mở (q4=0)")
     
     buffer = b""
     picked = False
     
     while not picked:
-        # Đọc và xử lý frame từ camera
         buffer += process.stdout.read(2048)
-        a = buffer.find(b'\xff\xd8')  # Đầu frame JPEG
-        b = buffer.find(b'\xff\xd9')  # Cuối frame JPEG
+        a = buffer.find(b'\xff\xd8')
+        b = buffer.find(b'\xff\xd9')
         if a != -1 and b != -1 and a < b:
             jpg = buffer[a:b+2]
             buffer = buffer[b+2:]
             frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
             
             if frame is None:
-                print("Failed to decode frame")
+                print("Không thể giải mã khung hình")
                 continue
             
-            # Xử lý frame và hiển thị
             processed_frame, position = process_frame(frame, target_color)
             cv2.imshow("Camera Feed", processed_frame)
             
-            # Nếu phát hiện vật thể, nhặt nó
             if position:
                 cx, cy = position
                 x, y, z = image_to_world(cx, cy, robot, target_color)
-                print(f"Found {target_color} at ({x:.2f}, {y:.2f}, {z:.2f})")
+                print(f"Tìm thấy {target_color} tại ({x:.2f}, {y:.2f}, {z:.2f})")
                 
                 if move_to_position(robot, x, y, z, q4=0):
                     set_servo_angle(servo_pins[3], 90, pwm_objects)
-                    print(f"Gripper closed (q4=90), picked up {target_color}")
+                    print(f"Kẹp đóng (q4=90), nhặt {target_color}")
                     
-                    # Nâng cánh tay lên
                     robot.updateJointAngles(0, 90, -90)
                     servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
                     set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
                     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
                     set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
-                    print("Arm raised after picking")
+                    print("Cánh tay nâng lên")
                     picked = True
         
-        # Kiểm tra phím 'q' để thoát
         if cv2.waitKey(1) & 0xFF == ord('q'):
-            print("Quitting...")
+            print("Thoát chương trình")
             break
     
     if not picked:
-        print(f"No {target_color} object found in front")
+        print(f"Không tìm thấy {target_color}")
     return picked
 
 def main():
     """Chương trình chính."""
-    robot = EEZYbotARM_Mk1(0, 90, -90)  # Khởi tạo robot ở vị trí cố định
+    robot = EEZYbotARM_Mk1(0, 90, -90)
     
-    # Nhập màu trực tiếp từ người dùng
-    target_color = input("Enter target color (red, green, blue): ").lower().strip()
+    target_color = input("Nhập màu (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
     if target_color not in valid_colors:
-        print(f"Invalid color. Please choose from {valid_colors}")
+        print(f"Màu không hợp lệ. Chọn từ {valid_colors}")
         GPIO.cleanup()
         return
     
-    # Khởi động luồng camera
-    cmd = [
-        "libcamera-vid",
-        "-t", "0",
-        "--width", "640",
-        "--height", "480",
-        "--framerate", "30",
-        "--codec", "mjpeg",
-        "-o", "-"
-    ]
+    cmd = ["libcamera-vid", "-t", "0", "--width", "640", "--height", "480", "--framerate", "30", "--codec", "mjpeg", "-o", "-"]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=10**8)
     except Exception as e:
-        print("Error starting camera:", e)
+        print(f"Lỗi khởi động camera: {e}")
         GPIO.cleanup()
         return
     
-    # Tạo cửa sổ OpenCV
     cv2.namedWindow("Camera Feed", cv2.WINDOW_NORMAL)
     
     try:
         pick_object(robot, process, target_color)
     except KeyboardInterrupt:
-        print("Interrupted by user")
+        print("Đã dừng bởi người dùng")
     finally:
         process.terminate()
         for pwm in pwm_objects.values():
             pwm.stop()
         GPIO.cleanup()
         cv2.destroyAllWindows()
-        print("Program ended")
+        print("Kết thúc chương trình")
 
 if __name__ == "__main__":
     main()
