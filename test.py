@@ -67,28 +67,47 @@ def process_frame(frame, target_color):
     
     return processed_frame, position
 
-def image_to_world(cx, cy, robot, target_color, frame_width=640, frame_height=480):
-    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm)."""
-    z_heights = {"red": 10, "green": 10, "blue": 10}
+def image_to_world(cx, cy, robot, target_color, frame_width=2592, frame_height=1944):
+    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm) với thông số camera mới."""
+    z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
     z_height = z_heights.get(target_color, 10)
     
-    camera_position = np.array([80, 0, 121])
-    fov_horizontal, fov_vertical = 54, 41
-    camera_height = camera_position[2] or 1
+    # Vị trí camera trong hệ tọa độ robot (mm)
+    camera_position = np.array([80, 0, 121])  # Cần xác nhận thực tế
     
+    # Thông số ống kính
+    fov_horizontal = 72.4  # Góc nhìn ngang (độ)
+    fov_vertical = 54.3    # Góc nhìn dọc (ước tính dựa trên tỷ lệ 4:3)
+    camera_height = camera_position[2] if camera_position[2] > 0 else 1  # Tránh chia cho 0
+    
+    # Tính kích thước thực tế của trường nhìn
     real_width = 2 * camera_height * np.tan(np.radians(fov_horizontal / 2))
     real_height = 2 * camera_height * np.tan(np.radians(fov_vertical / 2))
     mm_per_pixel_x = real_width / frame_width
     mm_per_pixel_y = real_height / frame_height
     
+    # Tính offset từ tâm ảnh
     offset_x = (cx - frame_width / 2) * mm_per_pixel_x
     offset_y = (cy - frame_height / 2) * mm_per_pixel_y
     
+    # Tọa độ trong hệ camera
     P_camera = np.array([offset_x, offset_y, 0])
-    P_robot = P_camera + camera_position
-    P_robot[2] = z_height
     
-    print(f"Tọa độ thực tế: ({P_robot[0]:.2f}, {P_robot[1]:.2f}, {P_robot[2]:.2f})")
+    # Ma trận quay (giả sử camera hướng xuống, Z camera = -Z robot, Y camera = -Y robot)
+    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+    P_rotated = np.dot(R, P_camera)
+    
+    # Chuyển sang hệ robot
+    P_robot = P_rotated + camera_position
+    P_robot[2] = z_height  # Gán độ cao vật thể
+    
+    # Debug thông tin
+    print(f"FOV ngang: {fov_horizontal}°, FOV dọc: {fov_vertical}°")
+    print(f"Camera height: {camera_height} mm")
+    print(f"Real width: {real_width:.2f} mm, Real height: {real_height:.2f} mm")
+    print(f"mm/pixel x: {mm_per_pixel_x:.6f}, mm/pixel y: {mm_per_pixel_y:.6f}")
+    print(f"Tọa độ robot: ({P_robot[0]:.2f}, {P_robot[1]:.2f}, {P_robot[2]:.2f})")
+    
     return P_robot[0], P_robot[1], P_robot[2]
 
 def move_to_position(robot, x, y, z, q4=None):
@@ -139,11 +158,16 @@ def pick_object(robot, process, target_color):
                 print("Không thể giải mã khung hình")
                 continue
             
+            # Resize khung hình để tăng hiệu suất nếu cần
+            frame = cv2.resize(frame, (640, 480))
             processed_frame, position = process_frame(frame, target_color)
             cv2.imshow("Camera Feed", processed_frame)
             
             if position:
+                # Điều chỉnh tọa độ cx, cy cho độ phân giải mới
                 cx, cy = position
+                cx = cx * (2592 / 640)  # Điều chỉnh theo tỷ lệ
+                cy = cy * (1944 / 480)
                 x, y, z = image_to_world(cx, cy, robot, target_color)
                 print(f"Tìm thấy {target_color} tại ({x:.2f}, {y:.2f}, {z:.2f})")
                 
@@ -178,7 +202,7 @@ def main():
         GPIO.cleanup()
         return
     
-    cmd = ["libcamera-vid", "-t", "0", "--width", "640", "--height", "480", "--framerate", "30", "--codec", "mjpeg", "-o", "-"]
+    cmd = ["libcamera-vid", "-t", "0", "--width", "2592", "--height", "1944", "--framerate", "30", "--codec", "mjpeg", "-o", "-"]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=10**8)
     except Exception as e:
