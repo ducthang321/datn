@@ -67,8 +67,8 @@ def process_frame(frame, target_color):
     
     return processed_frame, position
 
-def image_to_world(cx, cy, robot, target_color, frame_width=2592, frame_height=1944):
-    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm) với thông số camera mới."""
+def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=972):
+    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm) với độ phân giải 1296x972."""
     z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
     z_height = z_heights.get(target_color, 10)
     
@@ -164,10 +164,10 @@ def pick_object(robot, process, target_color):
             cv2.imshow("Camera Feed", processed_frame)
             
             if position:
-                # Điều chỉnh tọa độ cx, cy cho độ phân giải mới
+                # Điều chỉnh tọa độ cx, cy cho độ phân giải 1296x972
                 cx, cy = position
-                cx = cx * (2592 / 640)  # Điều chỉnh theo tỷ lệ
-                cy = cy * (1944 / 480)
+                cx = cx * (1296 / 640)  # Điều chỉnh theo tỷ lệ
+                cy = cy * (972 / 480)
                 x, y, z = image_to_world(cx, cy, robot, target_color)
                 print(f"Tìm thấy {target_color} tại ({x:.2f}, {y:.2f}, {z:.2f})")
                 
@@ -202,7 +202,7 @@ def main():
         GPIO.cleanup()
         return
     
-    cmd = ["libcamera-vid", "-t", "0", "--width", "2592", "--height", "1944", "--framerate", "30", "--codec", "mjpeg", "-o", "-"]
+    cmd = ["libcamera-vid", "-t", "0", "--width", "1296", "--height", "972", "--framerate", "30", "--codec", "mjpeg", "-o", "-"]
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=10**8)
     except Exception as e:
