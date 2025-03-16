@@ -21,12 +21,9 @@ for pwm in pwm_objects.values():
 def set_servo_angle(pin, target_angle, step=2, delay=0.02):
     """
     Điều khiển servo đến góc mong muốn một cách mượt mà.
-    
-    - step: Số độ thay đổi mỗi lần (mặc định 2°).
-    - delay: Thời gian giữa mỗi bước (mặc định 0.02s).
     """
-    current_angle = 90  # Giả định vị trí ban đầu là 90° (có thể thay đổi)
-    target_angle = int(target_angle)  # Chuyển target_angle thành số nguyên
+    current_angle = 90  # Giả định vị trí ban đầu là 90°
+    target_angle = int(target_angle)  # Chuyển thành số nguyên
     
     if target_angle > current_angle:
         for angle in range(current_angle, target_angle + 1, step):
@@ -39,7 +36,7 @@ def set_servo_angle(pin, target_angle, step=2, delay=0.02):
             pwm_objects[pin].ChangeDutyCycle(duty)
             time.sleep(delay)
 
-    pwm_objects[pin].ChangeDutyCycle(0)  # Dừng tín hiệu để tránh nóng động cơ
+    pwm_objects[pin].ChangeDutyCycle(0)  # Dừng tín hiệu
 
 def detect_object(frame, target_color):
     """Phát hiện vật thể dựa trên màu (trong không gian màu BGR)."""
@@ -67,9 +64,7 @@ def detect_object(frame, target_color):
     return positions
 
 def image_to_world(cx, cy, robot, target_color, q1, frame_width=640, frame_height=480):
-    """
-    Chuyển đổi tọa độ ảnh (cx, cy) sang tọa độ thực tế (mm) của robot.
-    """
+    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm)."""
     z_heights = {"red": 20, "green": 20, "blue": 20}
     z_height = z_heights.get(target_color, 10)
     
@@ -107,7 +102,7 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=640, frame_heigh
     return x_obj, y_obj, z_obj
 
 def move_to_position(robot, x, y, z, q4=None):
-    """Di chuyển cánh tay tới vị trí (x, y, z); nếu cung cấp q4 thì điều khiển kẹp."""
+    """Di chuyển cánh tay tới vị trí (x, y, z)."""
     try:
         q1, q2, q3 = robot.inverseKinematics(x, y, z)
         servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles(q1=q1, q2=q2, q3=q3)
@@ -133,8 +128,7 @@ def move_to_position(robot, x, y, z, q4=None):
 
 def scan_and_pick(robot, process, target_color):
     """
-    Quét môi trường bằng cách xoay q1 từ -30° đến 30°.
-    Hiển thị frame camera liên tục và nhặt vật khi phát hiện.
+    Quét môi trường và nhặt vật, với camera chạy xuyên suốt.
     """
     print(f"Scanning for {target_color}...")
     
@@ -143,30 +137,29 @@ def scan_and_pick(robot, process, target_color):
     print("Gripper opened (q4=0)")
     
     buffer = b""
-    found_q1 = None  # Lưu lại góc q1 khi phát hiện vật
+    q1 = -30  # Bắt đầu từ -30°
+    step = 5  # Bước quét
     
-    for q1 in range(-30, 31, 5):
-        # Cập nhật góc robot để quét
+    while q1 <= 30:
+        # Cập nhật góc robot
         robot.updateJointAngles(q1, 90, -90)
         servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
         set_servo_angle(servo_pins[0], servo_q1)
         set_servo_angle(servo_pins[1], servo_q2)
         set_servo_angle(servo_pins[2], servo_q3)
+        print(f"Rotated to q1={q1}°")
         
-        print(f"Rotated to q1={q1}° - waiting 5 seconds for image capture...")
-        time.sleep(5)  # Delay đủ để camera xử lý
-        
-        # Đọc dữ liệu từ luồng camera (stream MJPEG)
+        # Đọc và hiển thị frame liên tục
         buffer += process.stdout.read(1024)
         a = buffer.find(b'\xff\xd8')  # Đầu frame JPEG
-        b = buffer.find(b'\xff\xd9')  # Cuối frame JPEG
+        b = buffer.find(b'\xff\d9')  # Cuối frame JPEG
         if a != -1 and b != -1 and a < b:
             jpg = buffer[a:b+2]
             buffer = buffer[b+2:]
             frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
             
             if frame is None:
-                print("Failed to decode frame from camera")
+                print("Failed to decode frame")
                 continue
             
             # Hiển thị frame
@@ -176,23 +169,16 @@ def scan_and_pick(robot, process, target_color):
             positions = detect_object(frame, target_color)
             if target_color in positions:
                 cx, cy = positions[target_color]
-                # Vẽ tâm vật thể lên frame
                 cv2.circle(frame, (cx, cy), 5, (0, 255, 0), -1)
-                cv2.imshow("Camera Feed", frame)  # Cập nhật frame với tâm vật thể
+                cv2.imshow("Camera Feed", frame)
                 
-                # Chuyển đổi tọa độ từ ảnh sang tọa độ thực
                 x, y, z = image_to_world(cx, cy, robot, target_color, q1)
                 print(f"Found {target_color} at (world coords): ({x:.2f}, {y:.2f}, {z:.2f})")
                 
-                found_q1 = q1  # Lưu lại góc q1 khi phát hiện vật
-                
-                # Di chuyển đến vị trí vật thể, với kẹp vẫn mở (q4=0)
                 if move_to_position(robot, x, y, z, q4=0):
-                    # Đóng kẹp để nhặt vật (q4=90°)
                     set_servo_angle(servo_pins[3], 90)
                     print(f"Gripper closed (q4=90), picked up {target_color}")
                     
-                    # Nâng cánh tay lên
                     robot.updateJointAngles(q1, 90, -90)
                     servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
                     set_servo_angle(servo_pins[0], servo_q1)
@@ -200,23 +186,22 @@ def scan_and_pick(robot, process, target_color):
                     set_servo_angle(servo_pins[2], servo_q3)
                     print("Arm raised after picking")
                     return True
-            
-            # Kiểm tra phím 'q' để thoát sớm
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                print("Quitting scan...")
-                break
         
-        time.sleep(1)
+        # Kiểm tra phím 'q' để thoát
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Quitting scan...")
+            break
+        
+        # Tăng q1 sau mỗi vòng lặp
+        q1 += step
     
     print(f"No {target_color} found")
     return False
 
 def main():
     """Chương trình chính."""
-    # Khởi tạo robot với góc ban đầu (q1=0, q2=90, q3=-90)
     robot = EEZYbotARM_Mk1(0, 90, -90)
     
-    # Nhập màu mục tiêu trực tiếp từ bàn phím
     target_color = input("Enter target color (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
     if target_color not in valid_colors:
@@ -224,10 +209,9 @@ def main():
         GPIO.cleanup()
         return
     
-    # Khởi động luồng camera với libcamera-vid
     cmd = [
         "libcamera-vid",
-        "-t", "0",            # Chạy liên tục
+        "-t", "0",
         "--width", "640",
         "--height", "480",
         "--framerate", "30",
@@ -250,7 +234,7 @@ def main():
         for pwm in pwm_objects.values():
             pwm.stop()
         GPIO.cleanup()
-        cv2.destroyAllWindows()  # Đóng cửa sổ camera khi thoát
+        cv2.destroyAllWindows()
         print("Program ended")
 
 if __name__ == "__main__":
