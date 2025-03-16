@@ -68,31 +68,32 @@ def image_to_world(cx, cy, robot, target_color, frame_width=640, frame_height=48
     z_heights = {"red": 10, "green": 10, "blue": 10}
     z_height = z_heights.get(target_color, 10)
     
-    x_current, y_current, z_current = robot.forwardKinematics()
-    camera_offset_x = -20
-    camera_offset_y = 0
-    camera_offset_z = -10
+    # Vị trí camera trong hệ tọa độ robot
+    camera_position = np.array([80, 0, 121])  # mm (x, y, z)
     
-    x_camera = x_current + camera_offset_x
-    y_camera = y_current + camera_offset_y
-    z_camera = z_current + camera_offset_z
+    # Giả sử hệ tọa độ camera song song với hệ robot
+    fov_horizontal = 54  # độ
+    fov_vertical = 41    # độ
+    camera_height = camera_position[2] if camera_position[2] > 0 else 1  # Tránh chia cho 0
     
-    camera_height = z_camera if z_camera > 0 else 1  # Tránh chia cho 0
-    fov_horizontal = 54
-    fov_vertical = 41
-    
+    # Tính kích thước thực tế của trường nhìn
     real_width = 2 * camera_height * np.tan(np.radians(fov_horizontal / 2))
     real_height = 2 * camera_height * np.tan(np.radians(fov_vertical / 2))
     mm_per_pixel_x = real_width / frame_width
     mm_per_pixel_y = real_height / frame_height
     
+    # Tính offset từ tâm hình ảnh
     offset_x = (cx - frame_width / 2) * mm_per_pixel_x
     offset_y = (cy - frame_height / 2) * mm_per_pixel_y
     
-    x = x_camera + offset_x
-    y = y_camera + offset_y
-    z = z_height
-    return x, y, z
+    # Tọa độ trong hệ camera
+    P_camera = np.array([offset_x, offset_y, 0])  # Giả sử vật thể ở Z=0 trong hệ camera
+    
+    # Chuyển sang hệ robot
+    P_robot = P_camera + camera_position
+    P_robot[2] = z_height  # Đặt Z theo độ cao của vật thể
+    
+    return P_robot[0], P_robot[1], P_robot[2]
 
 def move_to_position(robot, x, y, z, q4=None):
     """Di chuyển cánh tay tới vị trí xác định và điều khiển kẹp nếu có q4."""
@@ -132,7 +133,7 @@ def pick_object(robot, process, target_color):
     
     while not picked:
         # Đọc và xử lý frame từ camera
-        buffer += process.stdout.read(2048)  # Đọc buffer lớn hơn để tăng tốc
+        buffer += process.stdout.read(2048)
         a = buffer.find(b'\xff\xd8')  # Đầu frame JPEG
         b = buffer.find(b'\xff\xd9')  # Cuối frame JPEG
         if a != -1 and b != -1 and a < b:
@@ -148,7 +149,7 @@ def pick_object(robot, process, target_color):
             processed_frame, position = process_frame(frame, target_color)
             cv2.imshow("Camera Feed", processed_frame)
             
-            # Nếu phát hiện vật thể ngay trước mặt, nhặt nó
+            # Nếu phát hiện vật thể, nhặt nó
             if position:
                 cx, cy = position
                 x, y, z = image_to_world(cx, cy, robot, target_color)
@@ -159,7 +160,7 @@ def pick_object(robot, process, target_color):
                     print(f"Gripper closed (q4=90), picked up {target_color}")
                     
                     # Nâng cánh tay lên
-                    robot.updateJointAngles(0, 90, -90)  # Giữ q1=0
+                    robot.updateJointAngles(0, 90, -90)
                     servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
                     set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
                     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
