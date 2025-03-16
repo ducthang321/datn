@@ -1,5 +1,4 @@
 from easyEEZYbotARM.kinematic_model import EEZYbotARM_Mk1
-import kinematic as EEZYbotARM_Mk1
 import RPi.GPIO as GPIO
 import cv2
 import numpy as np
@@ -8,6 +7,7 @@ import subprocess
 
 # Cấu hình GPIO cho servo (q1, q2, q3 và q4 cho kẹp)
 GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)  # Tắt cảnh báo GPIO
 servo_pins = [17, 18, 27, 22]  # q1, q2, q3, q4
 for pin in servo_pins:
     GPIO.setup(pin, GPIO.OUT)
@@ -26,6 +26,7 @@ def set_servo_angle(pin, target_angle, step=2, delay=0.02):
     - delay: Thời gian giữa mỗi bước (mặc định 0.02s).
     """
     current_angle = 90  # Giả định vị trí ban đầu là 90° (có thể thay đổi)
+    target_angle = int(target_angle)  # Chuyển target_angle thành số nguyên
     
     if target_angle > current_angle:
         for angle in range(current_angle, target_angle + 1, step):
@@ -163,6 +164,10 @@ def scan_and_pick(robot, process, target_color):
             jpg = buffer[a:b+2]
             buffer = buffer[b+2:]
             frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                print("Failed to decode frame from camera")
+                continue
             
             # Hiển thị frame
             cv2.imshow("Camera Feed", frame)
