@@ -119,29 +119,20 @@ def move_to_position(robot, x, y, z, q4=None):
         print(f"Error moving to position: {e}")
         return False
 
-def scan_and_pick(robot, process, target_color):
-    """Quét và nhặt vật thể với camera hiển thị liên tục."""
-    print(f"Scanning for {target_color}...")
+def pick_object(robot, process, target_color):
+    """Nhặt vật thể ngay trước mặt robot mà không quét."""
+    print(f"Preparing to pick {target_color} object in front...")
     
     # Mở kẹp ban đầu (q4 = 0°)
     set_servo_angle(servo_pins[3], 0, pwm_objects)
     print("Gripper opened (q4=0)")
     
     buffer = b""
-    q1 = -30  # Bắt đầu từ -30°
-    step = 5  # Bước quét
+    picked = False
     
-    while q1 <= 30:
-        # Cập nhật góc robot
-        robot.updateJointAngles(q1, 90, -90)
-        servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
-        set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
-        set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
-        set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
-        print(f"Rotated to q1={q1}°")
-        
+    while not picked:
         # Đọc và xử lý frame từ camera
-        buffer += process.stdout.read(2048)  # Tăng buffer để đọc nhanh hơn
+        buffer += process.stdout.read(2048)  # Đọc buffer lớn hơn để tăng tốc
         a = buffer.find(b'\xff\xd8')  # Đầu frame JPEG
         b = buffer.find(b'\xff\xd9')  # Cuối frame JPEG
         if a != -1 and b != -1 and a < b:
@@ -157,7 +148,7 @@ def scan_and_pick(robot, process, target_color):
             processed_frame, position = process_frame(frame, target_color)
             cv2.imshow("Camera Feed", processed_frame)
             
-            # Nếu phát hiện vật thể, nhặt nó
+            # Nếu phát hiện vật thể ngay trước mặt, nhặt nó
             if position:
                 cx, cy = position
                 x, y, z = image_to_world(cx, cy, robot, target_color)
@@ -167,30 +158,29 @@ def scan_and_pick(robot, process, target_color):
                     set_servo_angle(servo_pins[3], 90, pwm_objects)
                     print(f"Gripper closed (q4=90), picked up {target_color}")
                     
-                    robot.updateJointAngles(q1, 90, -90)
+                    # Nâng cánh tay lên
+                    robot.updateJointAngles(0, 90, -90)  # Giữ q1=0
                     servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles()
                     set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
                     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
                     set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
                     print("Arm raised after picking")
-                    return True
+                    picked = True
         
         # Kiểm tra phím 'q' để thoát
         if cv2.waitKey(1) & 0xFF == ord('q'):
-            print("Quitting scan...")
+            print("Quitting...")
             break
-        
-        # Tăng q1
-        q1 += step
     
-    print(f"No {target_color} found")
-    return False
+    if not picked:
+        print(f"No {target_color} object found in front")
+    return picked
 
 def main():
     """Chương trình chính."""
-    robot = EEZYbotARM_Mk1(0, 90, -90)
+    robot = EEZYbotARM_Mk1(0, 90, -90)  # Khởi tạo robot ở vị trí cố định
     
-    # Nhập màu trực tiếp từ người dùng thay vì dùng API ngrok
+    # Nhập màu trực tiếp từ người dùng
     target_color = input("Enter target color (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
     if target_color not in valid_colors:
@@ -219,7 +209,7 @@ def main():
     cv2.namedWindow("Camera Feed", cv2.WINDOW_NORMAL)
     
     try:
-        scan_and_pick(robot, process, target_color)
+        pick_object(robot, process, target_color)
     except KeyboardInterrupt:
         print("Interrupted by user")
     finally:
