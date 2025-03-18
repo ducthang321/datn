@@ -25,7 +25,7 @@ def set_servo_angle(pin, angle):
 def test_inverse_kinematics():
     # Khởi tạo robot với góc ban đầu bất kỳ
     robot = EEZYbotARM_Mk1(0, 90, -90)
-    
+    time.sleep(3)
     # Tọa độ cần kiểm tra
     x_test, y_test, z_test = 137, 0, 141
     
