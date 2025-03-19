@@ -78,8 +78,7 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     z_height = z_heights.get(target_color, 10)
     
     # Vị trí camera ban đầu khi q1=0°, q2=90°, q3=-90° (dọc trục Ox)
-    # Giả định camera gắn trên cánh tay, cần xác định vị trí tương đối so với gốc robot
-    camera_offset = np.array([100, 0, 125])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
+    camera_offset = robot.camera_offset  # Lấy từ thuộc tính robot (được gán trong main)
     
     # Điều chỉnh vị trí camera dựa trên góc q1 (xoay quanh trục z)
     q1_rad = np.radians(q1)
@@ -114,8 +113,8 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     # Tọa độ trong hệ camera (z=0 tại mặt phẳng vật thể)
     P_camera = np.array([x_camera, y_camera, 0])
     
-    # Ma trận quay của camera (giả sử camera hướng xuống, nhưng xoay theo q1)
-    R_camera = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # Camera hướng xuống
+    # Ma trận quay của camera
+    R_camera = robot.R_camera  # Lấy từ thuộc tính robot (được gán trong main)
     R_total = np.dot(R_q1, R_camera)  # Kết hợp xoay theo q1
     P_rotated = np.dot(R_total, P_camera)
     
@@ -123,8 +122,9 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     P_robot = P_rotated + camera_position
     P_robot[2] = z_height  # Gán độ cao vật thể
     
-    # Debug thông tin
+    # Debug chi tiết
     print(f"FOV ngang: {fov_horizontal}°, FOV dọc: {fov_vertical:.1f}°")
+    print(f"Camera offset: ({camera_offset[0]}, {camera_offset[1]}, {camera_offset[2]}) mm")
     print(f"Camera position (q1={q1}°): ({camera_position[0]:.2f}, {camera_position[1]:.2f}, {camera_position[2]:.2f}) mm")
     print(f"Angle x: {np.degrees(angle_x):.2f}°, Angle y: {np.degrees(angle_y):.2f}°")
     print(f"Camera height to object: {camera_height:.2f} mm")
@@ -233,6 +233,28 @@ def main():
     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
     set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
     print(f"Đã đặt góc servo: q1={servo_q1:.2f}°, q2={servo_q2:.2f}°, q3={servo_q3:.2f}°")
+    
+    # Hiệu chỉnh thủ công camera offset
+    print("Nhập camera offset (x, y, z) để hiệu chỉnh (nhấn Enter để giữ mặc định [70, 0, 110]):")
+    x_offset = input("x: ") or 70  # Cập nhật x=70 mm dựa trên hình
+    y_offset = input("y: ") or 0
+    z_offset = input("z: ") or 110
+    robot.camera_offset = np.array([float(x_offset), float(y_offset), float(z_offset)])
+    print(f"Camera offset được sử dụng: ({robot.camera_offset[0]}, {robot.camera_offset[1]}, {robot.camera_offset[2]}) mm")
+    
+    # Hiệu chỉnh thủ công R_camera
+    print("Chọn ma trận quay R_camera (nhập số 1-3, nhấn Enter để giữ mặc định [1, 0, 0; 0, -1, 0; 0, 0, -1]):")
+    print("1: [[1, 0, 0], [0, -1, 0], [0, 0, -1]] (hướng xuống)")
+    print("2: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]] (xoay 180° trục z)")
+    print("3: [[0, 1, 0], [-1, 0, 0], [0, 0, -1]] (xoay 90° trục z)")
+    R_choice = input("Lựa chọn (1-3): ") or "1"
+    R_options = {
+        "1": np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+        "2": np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]]),
+        "3": np.array([[0, 1, 0], [-1, 0, 0], [0, 0, -1]])
+    }
+    robot.R_camera = R_options.get(R_choice, R_options["1"])
+    print(f"R_camera được sử dụng: {robot.R_camera}")
     
     target_color = input("Nhập màu (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
