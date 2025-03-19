@@ -198,7 +198,23 @@ def pick_object(robot, process, target_color):
 
 def main():
     """Chương trình chính."""
+    # Khởi tạo robot với các góc q1=0°, q2=90°, q3=-90°
     robot = EEZYbotARM_Mk1(0, 90, -90)
+    
+    # Di chuyển cánh tay về các góc khởi tạo
+    print("Khởi động cánh tay về góc mặc định (q1=0°, q2=90°, q3=-90°)...")
+    # Sử dụng forwardKinematics để lấy tọa độ từ góc (nếu có), nếu không dùng tọa độ cố định
+    try:
+        # Giả sử forwardKinematics trả về (x, y, z) từ góc (q1, q2, q3)
+        x, y, z = robot.forwardKinematics(0, 90, -90)  # Cần kiểm tra module của bạn
+        move_to_position(robot, x, y, z)
+    except AttributeError:
+        # Nếu không có forwardKinematics, di chuyển trực tiếp bằng góc servo
+        servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles(q1=0, q2=90, q3=-90)
+        set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
+        set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
+        set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
+        print(f"Đã đặt góc servo: q1={servo_q1}°, q2={servo_q2}°, q3={servo_q3}°")
     
     target_color = input("Nhập màu (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
