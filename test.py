@@ -217,7 +217,7 @@ def main():
     print("Nhập vị trí camera (x, y, z) để hiệu chỉnh (nhấn Enter để giữ mặc định [80, 0, 141]):")
     x_cam = input("x: ") or 80
     y_cam = input("y: ") or 0
-    z_cam = input("z: ") or 141
+    z_cam = input("z: ") or 125
     camera_position = np.array([float(x_cam), float(y_cam), float(z_cam)])
     print(f"Vị trí camera được sử dụng: ({camera_position[0]}, {camera_position[1]}, {camera_position[2]}) mm")
     
