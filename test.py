@@ -79,7 +79,7 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     
     # Vị trí camera ban đầu khi q1=0°, q2=90°, q3=-90° (dọc trục Ox)
     # Giả định camera gắn trên cánh tay, cần xác định vị trí tương đối so với gốc robot
-    camera_offset = np.array([100, 0, 50])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
+    camera_offset = np.array([100, 0, 125])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
     
     # Điều chỉnh vị trí camera dựa trên góc q1 (xoay quanh trục z)
     q1_rad = np.radians(q1)
