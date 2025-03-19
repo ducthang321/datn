@@ -74,8 +74,8 @@ def process_frame(frame, target_color):
 
 def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_height=972):
     """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm) với camera trên cánh tay."""
-    z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
-    z_height = z_heights.get(target_color, 10)
+    z_heights = {"red": 40, "green": 40, "blue": 40}  # Độ cao giả định của vật thể
+    z_height = z_heights.get(target_color, 40)
     
     # Vị trí camera ban đầu khi q1=0°, q2=90°, q3=-90° (dọc trục Ox)
     # Giả định camera gắn trên cánh tay, cần xác định vị trí tương đối so với gốc robot
