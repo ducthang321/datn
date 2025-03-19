@@ -77,12 +77,11 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
     z_height = z_heights.get(target_color, 10)
     
-    # Vị trí camera trong hệ tọa độ robot (mm)
+    # Vị trí camera trong hệ tọa độ robot (mm) - Có thể hiệu chỉnh
     camera_position = np.array([80, 0, 141])
     
     # Thông số camera OV5647
     fov_horizontal = 72.4  # Góc nhìn ngang (độ)
-    # Tính góc dọc dựa trên tỷ lệ khung hình 4:3
     aspect_ratio = 4 / 3
     fov_vertical = 2 * np.degrees(np.arctan(np.tan(np.radians(fov_horizontal / 2)) / aspect_ratio))
     camera_height = camera_position[2] if camera_position[2] > 0 else 1  # Tránh chia cho 0
@@ -100,7 +99,9 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     # Tọa độ trong hệ camera
     P_camera = np.array([offset_x, offset_y, 0])
     
-    # Ma trận quay (giả sử camera hướng xuống, Z camera = -Z robot, Y camera = -Y robot)
+    # Ma trận quay - Có thể hiệu chỉnh (giả sử camera hướng xuống)
+    # Thử các biến thể: [[1, 0, 0], [0, -1, 0], [0, 0, -1]] (hiện tại)
+    # hoặc [[-1, 0, 0], [0, 1, 0], [0, 0, -1]] (xoay 180° trục z)
     R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
     P_rotated = np.dot(R, P_camera)
     
@@ -110,7 +111,7 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     
     # Debug thông tin
     print(f"FOV ngang: {fov_horizontal}°, FOV dọc: {fov_vertical:.1f}°")
-    print(f"Camera height: {camera_height} mm")
+    print(f"Camera position: ({camera_position[0]}, {camera_position[1]}, {camera_position[2]}) mm")
     print(f"Real width: {real_width:.2f} mm, Real height: {real_height:.2f} mm")
     print(f"mm/pixel x: {mm_per_pixel_x:.6f}, mm/pixel y: {mm_per_pixel_y:.6f}")
     print(f"Tọa độ robot: ({P_robot[0]:.2f}, {P_robot[1]:.2f}, {P_robot[2]:.2f})")
@@ -203,7 +204,6 @@ def main():
     
     # Di chuyển cánh tay về các góc khởi tạo
     print("Khởi động cánh tay về góc mặc định (q1=0°, q2=90°, q3=-90°)...")
-    # Sử dụng map_kinematicsToServoAngles để lấy góc servo trực tiếp
     servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles(q1=0, q2=90, q3=-90)
     set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
