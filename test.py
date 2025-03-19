@@ -72,13 +72,23 @@ def process_frame(frame, target_color):
     
     return processed_frame, position
 
-def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=972):
-    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm) với camera OV5647."""
+def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_height=972):
+    """Chuyển đổi tọa độ ảnh sang tọa độ thực tế (mm) với camera trên cánh tay."""
     z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
     z_height = z_heights.get(target_color, 10)
     
-    # Vị trí camera trong hệ tọa độ robot (mm) - Có thể hiệu chỉnh
-    camera_position = np.array([80, 0, 141])  # [x, y, z]
+    # Vị trí camera ban đầu khi q1=0°, q2=90°, q3=-90° (dọc trục Ox)
+    # Giả định camera gắn trên cánh tay, cần xác định vị trí tương đối so với gốc robot
+    camera_offset = np.array([100, 0, 50])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
+    
+    # Điều chỉnh vị trí camera dựa trên góc q1 (xoay quanh trục z)
+    q1_rad = np.radians(q1)
+    R_q1 = np.array([
+        [np.cos(q1_rad), -np.sin(q1_rad), 0],
+        [np.sin(q1_rad), np.cos(q1_rad), 0],
+        [0, 0, 1]
+    ])
+    camera_position = np.dot(R_q1, camera_offset)
     
     # Thông số camera OV5647
     focal_length = 3.29  # Tiêu cự (mm)
@@ -92,21 +102,22 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     angle_x = np.radians((cx - pixel_center_x) * (fov_horizontal / frame_width))
     angle_y = np.radians((cy - pixel_center_y) * (fov_vertical / frame_height))
     
-    # Tính tọa độ trong hệ camera (giả sử vật thể ở độ cao z_height dưới camera)
-    camera_height = camera_position[2] - z_height  # Khoảng cách từ camera đến vật thể
+    # Tính khoảng cách từ camera đến vật thể
+    camera_height = camera_position[2] - z_height
     if camera_height <= 0:
         camera_height = 1  # Tránh chia cho 0
     
-    # Tọa độ trong mặt phẳng camera (dựa trên góc và tiêu cự)
+    # Tọa độ trong hệ camera (dựa trên góc và tiêu cự)
     x_camera = camera_height * np.tan(angle_x)
-    y_camera = -camera_height * np.tan(angle_y)  # Dấu âm vì trục y của ảnh ngược với robot
+    y_camera = -camera_height * np.tan(angle_y)  # Dấu âm vì trục y ảnh ngược
     
     # Tọa độ trong hệ camera (z=0 tại mặt phẳng vật thể)
     P_camera = np.array([x_camera, y_camera, 0])
     
-    # Ma trận quay - Có thể hiệu chỉnh (giả sử camera hướng xuống)
-    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # Thử nghiệm: camera hướng xuống
-    P_rotated = np.dot(R, P_camera)
+    # Ma trận quay của camera (giả sử camera hướng xuống, nhưng xoay theo q1)
+    R_camera = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # Camera hướng xuống
+    R_total = np.dot(R_q1, R_camera)  # Kết hợp xoay theo q1
+    P_rotated = np.dot(R_total, P_camera)
     
     # Chuyển sang hệ robot
     P_robot = P_rotated + camera_position
@@ -114,7 +125,7 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     
     # Debug thông tin
     print(f"FOV ngang: {fov_horizontal}°, FOV dọc: {fov_vertical:.1f}°")
-    print(f"Camera position: ({camera_position[0]}, {camera_position[1]}, {camera_position[2]}) mm")
+    print(f"Camera position (q1={q1}°): ({camera_position[0]:.2f}, {camera_position[1]:.2f}, {camera_position[2]:.2f}) mm")
     print(f"Angle x: {np.degrees(angle_x):.2f}°, Angle y: {np.degrees(angle_y):.2f}°")
     print(f"Camera height to object: {camera_height:.2f} mm")
     print(f"Tọa độ robot: ({P_robot[0]:.2f}, {P_robot[1]:.2f}, {P_robot[2]:.2f})")
@@ -126,6 +137,9 @@ def move_to_position(robot, x, y, z, q4=None):
     try:
         q1, q2, q3 = robot.inverseKinematics(x, y, z)
         servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles(q1=q1, q2=q2, q3=q3)
+        
+        # Debug giá trị góc servo
+        print(f"Servo angles: q1={servo_q1:.2f}°, q2={servo_q2:.2f}°, q3={servo_q3:.2f}°")
         
         if not (0 <= servo_q1 <= 180 and 0 <= servo_q2 <= 180 and 0 <= servo_q3 <= 180):
             raise ValueError("Góc servo q1, q2, q3 ngoài khoảng 0-180")
@@ -141,10 +155,10 @@ def move_to_position(robot, x, y, z, q4=None):
             print(f"Kẹp di chuyển đến q4={q4:.2f}")
         
         print(f"Di chuyển đến: q1={q1:.2f}, q2={q2:.2f}, q3={q3:.2f}")
-        return True
+        return True, q1  # Trả về trạng thái và q1 mới
     except Exception as e:
         print(f"Lỗi di chuyển: {e}")
-        return False
+        return False, None
 
 def pick_object(robot, process, target_color):
     """Nhặt vật thể dựa trên màu."""
@@ -152,6 +166,9 @@ def pick_object(robot, process, target_color):
     
     set_servo_angle(servo_pins[3], 0, pwm_objects)
     print("Kẹp mở (q4=0)")
+    
+    # Góc q1 hiện tại (khởi tạo là 0°)
+    current_q1 = 0.0
     
     buffer = b""
     picked = False
@@ -177,10 +194,12 @@ def pick_object(robot, process, target_color):
                 cx, cy = position
                 cx = cx * (1296 / 640)  # Điều chỉnh theo tỷ lệ
                 cy = cy * (972 / 480)
-                x, y, z = image_to_world(cx, cy, robot, target_color)
+                x, y, z = image_to_world(cx, cy, robot, target_color, current_q1)
                 print(f"Tìm thấy {target_color} tại ({x:.2f}, {y:.2f}, {z:.2f})")
                 
-                if move_to_position(robot, x, y, z, q4=0):
+                success, new_q1 = move_to_position(robot, x, y, z, q4=0)
+                if success:
+                    current_q1 = new_q1  # Cập nhật q1 mới
                     set_servo_angle(servo_pins[3], 90, pwm_objects)
                     print(f"Kẹp đóng (q4=90), nhặt {target_color}")
                     
@@ -189,6 +208,7 @@ def pick_object(robot, process, target_color):
                     set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
                     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
                     set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
+                    current_q1 = 0.0  # Reset q1 về 0 sau khi nâng
                     print("Cánh tay nâng lên")
                     picked = True
         
@@ -208,18 +228,11 @@ def main():
     # Di chuyển cánh tay về các góc khởi tạo
     print("Khởi động cánh tay về góc mặc định (q1=0°, q2=90°, q3=-90°)...")
     servo_q1, servo_q2, servo_q3 = robot.map_kinematicsToServoAngles(q1=0, q2=90, q3=-90)
+    print(f"Servo angles before move: q1={servo_q1:.2f}°, q2={servo_q2:.2f}°, q3={servo_q3:.2f}°")
     set_servo_angle(servo_pins[0], servo_q1, pwm_objects)
     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
     set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
     print(f"Đã đặt góc servo: q1={servo_q1:.2f}°, q2={servo_q2:.2f}°, q3={servo_q3:.2f}°")
-    
-    # Hiệu chỉnh thủ công vị trí camera (nếu cần)
-    print("Nhập vị trí camera (x, y, z) để hiệu chỉnh (nhấn Enter để giữ mặc định [80, 0, 141]):")
-    x_cam = input("x: ") or 80
-    y_cam = input("y: ") or 0
-    z_cam = input("z: ") or 125
-    camera_position = np.array([float(x_cam), float(y_cam), float(z_cam)])
-    print(f"Vị trí camera được sử dụng: ({camera_position[0]}, {camera_position[1]}, {camera_position[2]}) mm")
     
     target_color = input("Nhập màu (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
