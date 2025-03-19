@@ -78,31 +78,34 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     z_height = z_heights.get(target_color, 10)
     
     # Vị trí camera trong hệ tọa độ robot (mm) - Có thể hiệu chỉnh
-    camera_position = np.array([80, 0, 141])
+    camera_position = np.array([80, 0, 141])  # [x, y, z]
     
     # Thông số camera OV5647
+    focal_length = 3.29  # Tiêu cự (mm)
     fov_horizontal = 72.4  # Góc nhìn ngang (độ)
-    aspect_ratio = 4 / 3
+    aspect_ratio = 4 / 3  # Tỷ lệ khung hình 1296x972
     fov_vertical = 2 * np.degrees(np.arctan(np.tan(np.radians(fov_horizontal / 2)) / aspect_ratio))
-    camera_height = camera_position[2] if camera_position[2] > 0 else 1  # Tránh chia cho 0
     
-    # Tính kích thước thực tế của trường nhìn
-    real_width = 2 * camera_height * np.tan(np.radians(fov_horizontal / 2))
-    real_height = 2 * camera_height * np.tan(np.radians(fov_vertical / 2))
-    mm_per_pixel_x = real_width / frame_width
-    mm_per_pixel_y = real_height / frame_height
+    # Tính góc từ tâm ảnh
+    pixel_center_x = frame_width / 2
+    pixel_center_y = frame_height / 2
+    angle_x = np.radians((cx - pixel_center_x) * (fov_horizontal / frame_width))
+    angle_y = np.radians((cy - pixel_center_y) * (fov_vertical / frame_height))
     
-    # Tính offset từ tâm ảnh
-    offset_x = (cx - frame_width / 2) * mm_per_pixel_x
-    offset_y = (cy - frame_height / 2) * mm_per_pixel_y
+    # Tính tọa độ trong hệ camera (giả sử vật thể ở độ cao z_height dưới camera)
+    camera_height = camera_position[2] - z_height  # Khoảng cách từ camera đến vật thể
+    if camera_height <= 0:
+        camera_height = 1  # Tránh chia cho 0
     
-    # Tọa độ trong hệ camera
-    P_camera = np.array([offset_x, offset_y, 0])
+    # Tọa độ trong mặt phẳng camera (dựa trên góc và tiêu cự)
+    x_camera = camera_height * np.tan(angle_x)
+    y_camera = -camera_height * np.tan(angle_y)  # Dấu âm vì trục y của ảnh ngược với robot
+    
+    # Tọa độ trong hệ camera (z=0 tại mặt phẳng vật thể)
+    P_camera = np.array([x_camera, y_camera, 0])
     
     # Ma trận quay - Có thể hiệu chỉnh (giả sử camera hướng xuống)
-    # Thử các biến thể: [[1, 0, 0], [0, -1, 0], [0, 0, -1]] (hiện tại)
-    # hoặc [[-1, 0, 0], [0, 1, 0], [0, 0, -1]] (xoay 180° trục z)
-    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # Thử nghiệm: camera hướng xuống
     P_rotated = np.dot(R, P_camera)
     
     # Chuyển sang hệ robot
@@ -112,8 +115,8 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     # Debug thông tin
     print(f"FOV ngang: {fov_horizontal}°, FOV dọc: {fov_vertical:.1f}°")
     print(f"Camera position: ({camera_position[0]}, {camera_position[1]}, {camera_position[2]}) mm")
-    print(f"Real width: {real_width:.2f} mm, Real height: {real_height:.2f} mm")
-    print(f"mm/pixel x: {mm_per_pixel_x:.6f}, mm/pixel y: {mm_per_pixel_y:.6f}")
+    print(f"Angle x: {np.degrees(angle_x):.2f}°, Angle y: {np.degrees(angle_y):.2f}°")
+    print(f"Camera height to object: {camera_height:.2f} mm")
     print(f"Tọa độ robot: ({P_robot[0]:.2f}, {P_robot[1]:.2f}, {P_robot[2]:.2f})")
     
     return P_robot[0], P_robot[1], P_robot[2]
@@ -209,6 +212,14 @@ def main():
     set_servo_angle(servo_pins[1], servo_q2, pwm_objects)
     set_servo_angle(servo_pins[2], servo_q3, pwm_objects)
     print(f"Đã đặt góc servo: q1={servo_q1:.2f}°, q2={servo_q2:.2f}°, q3={servo_q3:.2f}°")
+    
+    # Hiệu chỉnh thủ công vị trí camera (nếu cần)
+    print("Nhập vị trí camera (x, y, z) để hiệu chỉnh (nhấn Enter để giữ mặc định [80, 0, 141]):")
+    x_cam = input("x: ") or 80
+    y_cam = input("y: ") or 0
+    z_cam = input("z: ") or 141
+    camera_position = np.array([float(x_cam), float(y_cam), float(z_cam)])
+    print(f"Vị trí camera được sử dụng: ({camera_position[0]}, {camera_position[1]}, {camera_position[2]}) mm")
     
     target_color = input("Nhập màu (red, green, blue): ").lower().strip()
     valid_colors = ["red", "green", "blue"]
