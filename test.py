@@ -18,20 +18,12 @@ pwm_objects = {pin: GPIO.PWM(pin, 50) for pin in servo_pins}
 for pwm in pwm_objects.values():
     pwm.start(0)
 
-# Từ điển để lưu trữ góc hiện tại của từng servo (khởi tạo là 0)
-servo_angles = {pin: 0 for pin in servo_pins}
-
-def set_servo_angle(pin, angle, pwm_objects, steps=10, delay=0.02):
-    """Điều khiển servo tới góc xác định một cách từ từ."""
-    current_angle = servo_angles[pin]  # Lấy góc hiện tại từ từ điển
-    step_size = (angle - current_angle) / steps
-    for i in range(steps + 1):
-        intermediate_angle = current_angle + step_size * i
-        duty = intermediate_angle / 18 + 2
-        pwm_objects[pin].ChangeDutyCycle(duty)
-        time.sleep(delay)
+def set_servo_angle(pin, angle, pwm_objects):
+    """Điều khiển servo tới góc xác định."""
+    duty = angle / 18 + 2
+    pwm_objects[pin].ChangeDutyCycle(duty)
+    time.sleep(0.5)
     pwm_objects[pin].ChangeDutyCycle(0)
-    servo_angles[pin] = angle  # Cập nhật góc hiện tại
 
 def detect_object(frame, target_color):
     """Phát hiện vật thể dựa trên màu và trả về tọa độ tâm."""
@@ -86,7 +78,8 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     z_height = z_heights.get(target_color, 10)
     
     # Vị trí camera ban đầu khi q1=0°, q2=90°, q3=-90° (dọc trục Ox)
-    camera_offset = np.array([100, 0, 125])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
+    # Giả định camera gắn trên cánh tay, cần xác định vị trí tương đối so với gốc robot
+    camera_offset = np.array([95, 0, 125])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
     
     # Điều chỉnh vị trí camera dựa trên góc q1 (xoay quanh trục z)
     q1_rad = np.radians(q1)
