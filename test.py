@@ -77,8 +77,11 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     z_heights = {"red": 10, "green": 10, "blue": 10}
     z_height = z_heights.get(target_color, 10)
     
+    # Cập nhật q1 hiện tại vào robot
+    robot.updateJointAngles(q1, robot.q2, robot.q3)
+    
     # Lấy vị trí kẹp từ động học thuận
-    current_x, current_y, current_z = robot.forwardKinematics(q1, robot.q2, robot.q3)
+    current_x, current_y, current_z = robot.forwardKinematics()
     
     # Camera ngay trên kẹp, cách một khoảng nhỏ theo trục Z (giả định 20 mm)
     camera_offset = np.array([0, 0, 20])  # Offset từ kẹp lên camera
@@ -108,11 +111,11 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     
     # Tọa độ trong hệ camera (camera hướng xuống)
     x_camera = camera_height * np.tan(angle_x)
-    y_camera = -camera_height * np.tan(angle_y)  # Dấu âm vì trục Y ảnh ngược với hệ robot
+    y_camera = -camera_height * np.tan(angle_y)  # Dấu âm vì trục Y ảnh ngược
     
     P_camera = np.array([x_camera, y_camera, 0])
     
-    # Camera hướng xuống, chỉ cần xoay theo q1
+    # Xoay theo q1
     P_rotated = np.dot(R_q1, P_camera)
     
     P_robot = P_rotated + camera_position
