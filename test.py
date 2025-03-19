@@ -77,12 +77,12 @@ def image_to_world(cx, cy, robot, target_color, frame_width=1296, frame_height=9
     z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
     z_height = z_heights.get(target_color, 10)
     
-    # Vị trí camera trong hệ tọa độ robot (mm) - Đã cập nhật
-    camera_position = np.array([80, 0, 141])  # Vị trí camera mới
+    # Vị trí camera trong hệ tọa độ robot (mm)
+    camera_position = np.array([80, 0, 141])
     
-    # Thông số camera OV5647 dựa trên datasheet
-    fov_horizontal = 72.4  # Góc nhìn ngang (độ) theo thông số
-    # Tính góc dọc dựa trên tỷ lệ khung hình 4:3 (2592x1944)
+    # Thông số camera OV5647
+    fov_horizontal = 72.4  # Góc nhìn ngang (độ)
+    # Tính góc dọc dựa trên tỷ lệ khung hình 4:3
     aspect_ratio = 4 / 3
     fov_vertical = 2 * np.degrees(np.arctan(np.tan(np.radians(fov_horizontal / 2)) / aspect_ratio))
     camera_height = camera_position[2] if camera_position[2] > 0 else 1  # Tránh chia cho 0
