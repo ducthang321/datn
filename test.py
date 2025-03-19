@@ -18,9 +18,12 @@ pwm_objects = {pin: GPIO.PWM(pin, 50) for pin in servo_pins}
 for pwm in pwm_objects.values():
     pwm.start(0)
 
+# Từ điển để lưu trữ góc hiện tại của từng servo (khởi tạo là 0)
+servo_angles = {pin: 0 for pin in servo_pins}
+
 def set_servo_angle(pin, angle, pwm_objects, steps=10, delay=0.02):
     """Điều khiển servo tới góc xác định một cách từ từ."""
-    current_angle = getattr(pwm_objects[pin], "last_angle", 0)
+    current_angle = servo_angles[pin]  # Lấy góc hiện tại từ từ điển
     step_size = (angle - current_angle) / steps
     for i in range(steps + 1):
         intermediate_angle = current_angle + step_size * i
@@ -28,7 +31,7 @@ def set_servo_angle(pin, angle, pwm_objects, steps=10, delay=0.02):
         pwm_objects[pin].ChangeDutyCycle(duty)
         time.sleep(delay)
     pwm_objects[pin].ChangeDutyCycle(0)
-    pwm_objects[pin].last_angle = angle
+    servo_angles[pin] = angle  # Cập nhật góc hiện tại
 
 def detect_object(frame, target_color):
     """Phát hiện vật thể dựa trên màu và trả về tọa độ tâm."""
@@ -82,8 +85,8 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     z_heights = {"red": 10, "green": 10, "blue": 10}  # Độ cao giả định của vật thể
     z_height = z_heights.get(target_color, 10)
     
-    # Vị trí camera mới: (90, 0, 115)
-    camera_offset = np.array([90, 0, 115])  # [x, y, z] - Camera cách gốc robot
+    # Vị trí camera ban đầu khi q1=0°, q2=90°, q3=-90° (dọc trục Ox)
+    camera_offset = np.array([100, 0, 125])  # [x, y, z] - Camera cách gốc robot (cần hiệu chỉnh thực tế)
     
     # Điều chỉnh vị trí camera dựa trên góc q1 (xoay quanh trục z)
     q1_rad = np.radians(q1)
@@ -113,13 +116,15 @@ def image_to_world(cx, cy, robot, target_color, q1, frame_width=1296, frame_heig
     
     # Tọa độ trong hệ camera (dựa trên góc và tiêu cự)
     x_camera = camera_height * np.tan(angle_x)
-    y_camera = camera_height * np.tan(angle_y)  # Không có R_camera nên giữ nguyên hướng
+    y_camera = -camera_height * np.tan(angle_y)  # Dấu âm vì trục y ảnh ngược
     
     # Tọa độ trong hệ camera (z=0 tại mặt phẳng vật thể)
     P_camera = np.array([x_camera, y_camera, 0])
     
-    # Chỉ sử dụng R_q1 vì đã bỏ R_camera
-    P_rotated = np.dot(R_q1, P_camera)
+    # Ma trận quay của camera (giả sử camera hướng xuống, nhưng xoay theo q1)
+    R_camera = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])  # Camera hướng xuống
+    R_total = np.dot(R_q1, R_camera)  # Kết hợp xoay theo q1
+    P_rotated = np.dot(R_total, P_camera)
     
     # Chuyển sang hệ robot
     P_robot = P_rotated + camera_position
